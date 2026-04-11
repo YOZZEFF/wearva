@@ -5,6 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Product;
+use Illuminate\Support\Facades\Storage;
+
+
+
 
 class ProductController extends Controller
 {
@@ -63,7 +67,65 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
-        //
+
+      $request->validate([
+        'name' => 'required|string|max:255',
+        'slug'=> 'required|string|max:255',
+        'description'=> 'required|string',
+        'price' => 'required|numeric',
+        'sale_price'=> 'sometimes|numeric',
+        'brand'=> 'sometimes|string|max:255',
+        'category_id'=> 'required|exists:categories,id',
+        'stock'=> 'required|integer|min:0',
+        'is_featured'=> 'sometimes|boolean',
+        'is_new_arrival' => 'sometimes|boolean',
+        'images'=>'sometimes|array',
+        'images.*'=> 'image|mimes:jpg,jpeg,png|max:2048',
+        'variants' => 'sometimes|array',
+
+      ]);
+        //  create product
+       $product = Product::create([
+        'name', 'slug', 'description', 'price', 'sale_price',
+        'brand', 'category_id', 'stock', 'is_featured',
+        'is_new_arrival'
+
+        ]);
+
+        //  store images & primary image
+
+        if($request->hasFile('images') ){
+
+        foreach($request->file('images') as $index => $image){
+
+        $product->images()->create([
+            'image_path' => $image->store('products','public'),
+            'is_primary' => $index === 0
+
+        ]);
+
+        }
+        }
+
+        //  store variants
+        if($request->has('variants')){
+
+        foreach($request->variants as $variant){
+
+        $product->variants()->create($variant);
+        }
+        }
+
+        return response()->json([
+
+        'status' => true,
+        'message' => 'product created successfully',
+        'data'=> $product->load(['images', 'variants' , 'category.subCategories'])
+
+        ]);
+
+
+
     }
 
     /**
@@ -82,16 +144,85 @@ class ProductController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(Request $request, Product $product)
     {
-        //
+        $request->validate([
+        'name' => 'sometimes|string|max:255',
+        'slug'=> 'sometimes|string|max:255',
+        'description'=> 'sometimes|string',
+        'price' => 'sometimes|numeric',
+        'sale_price'=> 'sometimes|numeric',
+        'brand'=> 'sometimes|string|max:255',
+        'category_id'=> 'sometimes|exists:categories,id',
+        'stock'=> 'sometimes|integer|min:0',
+        'is_featured'=> 'sometimes|boolean',
+        'is_new_arrival' => 'sometimes|boolean',
+        'images'=>'sometimes|array',
+        'images.*'=> 'image|mimes:jpg,jpeg,png|max:2048',
+        'variants' => 'sometimes|array',
+
+      ]);
+
+       $product->update($request->only([
+        'name', 'slug', 'description', 'price', 'sale_price',
+        'brand', 'category_id', 'stock', 'is_featured',
+        'is_new_arrival'
+
+        ]));
+
+         if($request->hasFile('images') ){
+
+        foreach($request->file('images') as $index => $image){
+
+        $product->images()->create([
+            'image_path' => $image->store('products','public'),
+            'is_primary' => $index === 0
+
+        ]);
+
+        }
+        }
+
+
+         if($request->has('variants')){
+
+        foreach($request->variants as $variant){
+
+        $product->variants()->updateOrCreate(
+            ['size' => $variant['size'], 'color' => $variant['color']],
+             $variant);
+        }
+        }
+
+        return response()->json([
+        'status'  => true,
+        'message' => 'Product updated successfully',
+        'data'    => $product->load(['images', 'variants', 'category.subCategories']),
+    ]);
+
+
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(string $id)
+    public function destroy(Product $product)
     {
         //
+
+        foreach($product->images as $image){
+
+        Storage::disk('public')->delete($image->image_path);
+
+
+
+        }
+
+        $product->delete();
+
+          return response()->json([
+        'status'  => true,
+        'message' => 'Product deleted successfully',
+    ]);
     }
 }
