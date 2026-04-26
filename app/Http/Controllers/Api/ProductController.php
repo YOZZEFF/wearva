@@ -6,6 +6,10 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Product;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+
+
+
 
 
 
@@ -30,28 +34,43 @@ class ProductController extends Controller
                   )
             )
         )
-        ->when($request->min_price, fn($q) =>
-            $q->where('price', '>=', $request->min_price)
-        )
-        ->when($request->max_price, fn($q) =>
-            $q->where('price', '<=', $request->max_price)
-        )
+        ->when($request->filled('min_price') || $request->filled('max_price') || $request->filled('size') || $request->filled('color'),
+            function ($q) use ($request) {
+
+
+              $q->whereHas('variants', function($q2) use ($request){
+
+              if($request->filled('min_price')){
+
+              $q2->where('price', '>=', $request->filled('min_price'));
+              }
+              if($request->filled('max_price')){
+
+              $q2->where('price', '<=', $request->filled('max_price'));
+              }
+              if($request->filled('size')){
+
+              $q2->where('size', $request->filled('size'));
+              }
+              if($request->filled('color')){
+
+              $q2->where('color', $request->filled('color'));
+              }
+
+
+              });
+
+
+            }
+            )
+
         ->when($request->is_featured, fn($q) =>
             $q->where('is_featured', true)
         )
         ->when($request->is_new_arrival, fn($q) =>
             $q->where('is_new_arrival', true)
         )
-        ->when($request->size, fn($q) =>
-            $q->whereHas('variants', fn($q) =>
-                $q->where('size', $request->size)
-            )
-        )
-        ->when($request->color, fn($q) =>
-            $q->whereHas('variants', fn($q) =>
-                $q->where('color', $request->color)
-            )
-        )
+
         ->latest()
         ->paginate(15);
 
@@ -67,30 +86,51 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
+        // dd($request->variants);
 
       $request->validate([
         'name' => 'required|string|max:255',
-        'slug'=> 'required|string|max:255',
         'description'=> 'required|string',
-        'price' => 'required|numeric',
-        'sale_price'=> 'sometimes|numeric',
         'brand'=> 'sometimes|string|max:255',
         'category_id'=> 'required|exists:categories,id',
-        'stock'=> 'required|integer|min:0',
         'is_featured'=> 'sometimes|boolean',
         'is_new_arrival' => 'sometimes|boolean',
         'images'=>'sometimes|array',
         'images.*'=> 'image|mimes:jpg,jpeg,png|max:2048',
-        'variants' => 'sometimes|array',
+        'variants' => 'required|array',
+        'variants.*.size'   => 'required|in:XS,S,M,L,XL,XXL',
+        'variants.*.color'  => 'required|string',
+        'variants.*.price'  => 'required|numeric',
+        'variants.*.stock'  => 'required|integer',
 
       ]);
+
+       $existingProduct = Product::where('name' , $request->name)
+       ->where('brand' , $request->brand)
+       ->where('category_id' , $request->category_id)
+       ->first();
+
+       if($existingProduct){
+         return response()->json([
+        'status' => false,
+        'message' => 'This product already exists',
+        'data' => $existingProduct
+    ], 409);
+       }
         //  create product
        $product = Product::create([
-        'name', 'slug', 'description', 'price', 'sale_price',
-        'brand', 'category_id', 'stock', 'is_featured',
-        'is_new_arrival'
+        'name'           => $request->name,
+        'brand'          => $request->brand,
+        'category_id'    => $request->category_id,
+        'slug'           => Str::slug($request->name) . '-' . uniqid(),
+        'description'    => $request->description,
+        'is_featured'    => $request->is_featured ?? false,
+        'is_new_arrival' => $request->is_new_arrival ?? false,
+        ]
 
-        ]);
+
+
+    );
 
         //  store images & primary image
 
@@ -108,12 +148,28 @@ class ProductController extends Controller
         }
 
         //  store variants
-        if($request->has('variants')){
 
         foreach($request->variants as $variant){
 
-        $product->variants()->create($variant);
-        }
+          $size = strtoupper($variant['size']);
+          $color = strtolower($variant['color']);
+
+          $exists = $product->variants()
+          ->where('size' ,$size)
+          ->where('color' ,$color)
+          ->exists();
+
+          if($exists){
+            // that's mean Skip this variant
+            continue;
+
+          }
+          $product->variants()->create([
+             'size'  => $size,
+            'color' => $color,
+            'price' => (float) $variant['price'],
+            'stock' => (int) $variant['stock'],
+          ]);
         }
 
         return response()->json([
@@ -148,13 +204,10 @@ class ProductController extends Controller
     {
         $request->validate([
         'name' => 'sometimes|string|max:255',
-        'slug'=> 'sometimes|string|max:255',
+        'slug'=> 'sometimes|string|max:255|unique:products,slug,' . $product->id,
         'description'=> 'sometimes|string',
-        'price' => 'sometimes|numeric',
-        'sale_price'=> 'sometimes|numeric',
         'brand'=> 'sometimes|string|max:255',
         'category_id'=> 'sometimes|exists:categories,id',
-        'stock'=> 'sometimes|integer|min:0',
         'is_featured'=> 'sometimes|boolean',
         'is_new_arrival' => 'sometimes|boolean',
         'images'=>'sometimes|array',
@@ -164,8 +217,8 @@ class ProductController extends Controller
       ]);
 
        $product->update($request->only([
-        'name', 'slug', 'description', 'price', 'sale_price',
-        'brand', 'category_id', 'stock', 'is_featured',
+        'name', 'slug', 'description',
+        'brand', 'category_id',  'is_featured',
         'is_new_arrival'
 
         ]));
@@ -189,7 +242,9 @@ class ProductController extends Controller
         foreach($request->variants as $variant){
 
         $product->variants()->updateOrCreate(
-            ['size' => $variant['size'], 'color' => $variant['color']],
+            [
+            'price' => $variant['price'],
+            'stock' => $variant['stock']],
              $variant);
         }
         }

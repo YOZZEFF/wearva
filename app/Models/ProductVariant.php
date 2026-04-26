@@ -13,11 +13,13 @@ class ProductVariant extends Model
         'size',
         'color',
         'price',
-        'stock'];
+        'stock',
+        ];
 
          protected $casts = [
         'price' => 'decimal:2',
         'stock' => 'integer',
+        
     ];
 
 

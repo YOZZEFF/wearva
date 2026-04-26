@@ -130,6 +130,14 @@ class AddressController extends Controller
      ],403);
      }
 
+     if($address->is_default){
+
+        return response()->json([
+            'status' => false,
+            'message' => 'Cannot delete default address change default address first',
+        ]);
+     }
+
      $address->delete();
 
      return response()->json([

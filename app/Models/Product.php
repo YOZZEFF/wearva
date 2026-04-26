@@ -16,19 +16,14 @@ class Product extends Model
             'name',
             'slug',
             'description',
-            'price',
-            'sale_price',
             'brand',
-            'stock',
             'status',
             'is_featured',
             'is_new_arrival'
             ];
 
             protected $casts = [
-    'price'          => 'decimal:2',
-    'sale_price'     => 'decimal:2',
-    'stock'          => 'integer',
+
     'status'         => 'boolean',
     'is_featured'    => 'boolean',
     'is_new_arrival' => 'boolean',
@@ -60,5 +55,15 @@ class Product extends Model
     {
         return 'slug';
     }
+
+    public function cartItems()
+{
+    return $this->hasMany(CartItem::class);
+}
+
+public function wishlists(){
+
+return $this->hasMany(Wishlist::class);
+}
 
 }
